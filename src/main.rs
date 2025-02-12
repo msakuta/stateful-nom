@@ -33,36 +33,20 @@ type NodeId = usize;
 
 fn print_tree(nodes: &[Node], root: NodeId) {
     fn print_tree_int(nodes: &[Node], root: NodeId, indent: usize) {
-        let spaces = "  ".repeat(indent);
+        let spaces = "  ".repeat(indent) + " ";
         let node = &nodes[root];
-        println!("{spaces}{:?}", node);
         match node {
+            Node::NumLiteral(val) => {
+                println!("[{root:2}]{spaces}{node:?}");
+            }
             Node::Add(lhs, rhs) => {
+                println!("[{root:2}]{spaces}{:?}", node);
                 print_tree_int(nodes, *lhs, indent + 1);
                 print_tree_int(nodes, *rhs, indent + 1);
             }
-            _ => {}
         }
     }
     print_tree_int(nodes, root, 0);
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct Expression<'a> {
-    pub(crate) expr: ExprEnum<'a>,
-    pub(crate) span: Span<'a>,
-}
-
-impl<'a> Expression<'a> {
-    fn new(expr: ExprEnum<'a>, span: Span<'a>) -> Self {
-        Self { expr, span }
-    }
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub(crate) enum ExprEnum<'a> {
-    NumLiteral(f64),
-    Add(Box<Expression<'a>>, Box<Expression<'a>>),
 }
 
 /// An extension trait for writing subslice concisely
