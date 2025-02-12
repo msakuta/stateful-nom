@@ -5,8 +5,7 @@ use nom::{
     character::complete::{char, digit1, multispace0},
     combinator::{opt, recognize},
     multi::{fold_many0, many0, many1},
-    sequence::{delimited, pair, terminated},
-    Finish, IResult, InputTake,
+    sequence::{delimited, pair, terminated}, IResult, InputTake,
 };
 
 /// An extension trait for writing subslice concisely
