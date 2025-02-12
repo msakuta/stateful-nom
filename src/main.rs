@@ -16,15 +16,19 @@ type Span<'a> = LocatedSpan<&'a str, &'a RefCell<Vec<Node>>>;
 
 fn main() {
     let nodes = RefCell::new(vec![]);
-    let source = Input::new_extra("123 + 456 - 789", &nodes);
+    let source = Input::new_extra("123i64 + 456 - 789", &nodes);
     let ast = add(source).finish().unwrap();
     println!("nodes: {nodes:?}");
     print_tree(&nodes.borrow(), ast.1);
 
-    assign_type(&mut nodes.borrow_mut(), ast.1, TypeDecl::F64);
+    let nodes = nodes.borrow();
+    let builder = TypeConstraintBuilder::new(&nodes, ast.1);
+    let constraints = builder.build().unwrap();
+    println!("Constraints: {constraints:?}");
+    // assign_type(&mut nodes.borrow_mut(), ast.1, TypeDecl::F64);
 
-    println!("after assigning type:");
-    print_tree(&nodes.borrow(), ast.1);
+    // println!("after assigning type:");
+    // print_tree(&nodes.borrow(), ast.1);
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -36,7 +40,7 @@ enum Node {
 /// Index into Vec<Node>
 type NodeId = usize;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TypeDecl {
     F64,
     I64,
@@ -131,5 +135,61 @@ fn assign_type(nodes: &mut [Node], root: NodeId, ty: TypeDecl) {
             assign_type(nodes, lhs, ty);
             assign_type(nodes, rhs, ty);
         }
+    }
+}
+
+#[derive(Debug)]
+struct TypeConstraint {
+    lhs: NodeId,
+    rhs: NodeId,
+}
+
+struct TypeConstraintBuilder<'a> {
+    nodes: &'a Vec<Node>,
+    root: NodeId,
+    constraints: Vec<TypeConstraint>,
+}
+
+impl<'a> TypeConstraintBuilder<'a> {
+    fn new(nodes: &'a Vec<Node>, root: NodeId) -> Self {
+        Self {
+            nodes,
+            root,
+            constraints: vec![],
+        }
+    }
+
+    fn forward(&mut self, root: NodeId) -> Result<Option<(NodeId, TypeDecl)>, String> {
+        Ok(match self.nodes[root] {
+            Node::NumLiteral(_, Some(ty)) => Some((root, ty)),
+            Node::NumLiteral(_, _) => None,
+            Node::Add(lhs, rhs) => {
+                let lhs_res = self.forward(lhs)?;
+                let rhs_res = self.forward(rhs)?;
+                match (lhs_res, rhs_res) {
+                    (Some((lhs, lhty)), Some((rhs, rhty))) => {
+                        if lhty != rhty {
+                            return Err(format!("Type conflict between node {lhs} and {rhs}"));
+                        } else {
+                            None
+                        }
+                    }
+                    (None, Some(rhs)) => {
+                        self.constraints.push(TypeConstraint { lhs, rhs: rhs.0 });
+                        Some(rhs)
+                    }
+                    (Some(lhs), None) => {
+                        self.constraints.push(TypeConstraint { lhs: lhs.0, rhs });
+                        Some(lhs)
+                    }
+                    _ => None,
+                }
+            }
+        })
+    }
+
+    fn build(mut self) -> Result<Vec<TypeConstraint>, String> {
+        self.forward(self.root)?;
+        Ok(self.constraints)
     }
 }
