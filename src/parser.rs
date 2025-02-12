@@ -1,3 +1,4 @@
+use super::{Input, Node, NodeId, Span, TypeDecl};
 use nom::{
     branch::alt,
     bytes::complete::tag,
@@ -7,7 +8,6 @@ use nom::{
     sequence::{delimited, pair, terminated},
     Finish, IResult, InputTake,
 };
-use super::{Span, Input, NodeId, Node, TypeDecl};
 
 /// An extension trait for writing subslice concisely
 trait Subslice {
