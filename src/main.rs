@@ -1,15 +1,10 @@
+mod parser;
+
 use std::cell::RefCell;
 
-use nom::{
-    branch::alt,
-    bytes::complete::tag,
-    character::complete::{char, digit1, multispace0},
-    combinator::{opt, recognize},
-    multi::{fold_many0, many0, many1},
-    sequence::{delimited, pair, terminated},
-    Finish, IResult, InputTake,
-};
+use crate::parser::parse;
 use nom_locate::LocatedSpan;
+use nom::Finish;
 
 type Input<'a> = LocatedSpan<&'a str, &'a RefCell<Vec<Node>>>;
 type Span<'a> = LocatedSpan<&'a str, &'a RefCell<Vec<Node>>>;
@@ -17,7 +12,7 @@ type Span<'a> = LocatedSpan<&'a str, &'a RefCell<Vec<Node>>>;
 fn main() {
     let nodes = RefCell::new(vec![]);
     let source = Input::new_extra("123i64 + 456 - 789", &nodes);
-    let ast = add(source).finish().unwrap();
+    let ast = parse(source).finish().unwrap();
     println!("nodes: {nodes:?}");
     print_tree(&nodes.borrow(), ast.1);
 
@@ -71,70 +66,6 @@ fn print_tree(nodes: &[Node], root: NodeId) {
         }
     }
     print_tree_int(nodes, root, 0);
-}
-
-/// An extension trait for writing subslice concisely
-trait Subslice {
-    fn subslice(&self, start: usize, length: usize) -> Self;
-}
-
-impl<'a> Subslice for Span<'a> {
-    fn subslice(&self, start: usize, length: usize) -> Self {
-        self.take_split(start).0.take(length)
-    }
-}
-
-// impl<'a> Subslice for Input<'a> {
-//     fn subslice(&self, start: usize, length: usize) -> Self {
-//         self.take_split(start).0.take(length)
-//     }
-// }
-
-fn decimal(input: Input) -> IResult<Input, NodeId> {
-    let (r, (res, ty)) = delimited(
-        multispace0,
-        pair(
-            recognize(many1(terminated(digit1, many0(char('_'))))),
-            opt(alt((tag("i64"), tag("f64")))),
-        ),
-        multispace0,
-    )(input)?;
-    let num = res.parse::<f64>().unwrap();
-    let mut nodes = input.extra.borrow_mut();
-    let ret = nodes.len();
-    nodes.push(Node::NumLiteral(
-        num,
-        ty.map(|ty| match *ty {
-            "i64" => TypeDecl::I64,
-            "f64" => TypeDecl::F64,
-            _ => unreachable!(),
-        }),
-    ));
-    Ok((r, ret))
-}
-
-fn add(i: Input) -> IResult<Input, NodeId> {
-    let (r, init) = decimal(i)?;
-
-    fold_many0(
-        pair(alt((char('+'), char('-'))), decimal),
-        move || init.clone(),
-        move |acc, (_op, val): (char, NodeId)| {
-            // let span = i.subslice(
-            //     i.offset(&acc.span),
-            //     acc.span.offset(&val.span) + val.span.len(),
-            // );
-            let mut nodes = i.extra.borrow_mut();
-            let ret = nodes.len();
-            nodes.push(Node::Add(acc, val));
-            ret
-            // if op == '+' {
-            // Expression::new(ExprEnum::Add(Box::new(acc), Box::new(val)), span)
-            // } else {
-            //     Expression::new(ExprEnum::Sub(Box::new(acc), Box::new(val)), span)
-            // }
-        },
-    )(r)
 }
 
 fn resolve_types(nodes: &mut [Node], constraints: &[TypeConstraint]) {
