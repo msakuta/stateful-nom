@@ -2,8 +2,9 @@ use std::cell::RefCell;
 
 use nom::{
     branch::alt,
+    bytes::complete::tag,
     character::complete::{char, digit1, multispace0},
-    combinator::recognize,
+    combinator::{opt, recognize},
     multi::{fold_many0, many0, many1},
     sequence::{delimited, pair, terminated},
     Finish, IResult, InputTake,
@@ -17,26 +18,36 @@ fn main() {
     let nodes = RefCell::new(vec![]);
     let source = Input::new_extra("123 + 456 - 789", &nodes);
     let ast = add(source).finish().unwrap();
-    println!("parsed: {ast:?}");
     println!("nodes: {nodes:?}");
+    print_tree(&nodes.borrow(), ast.1);
+
+    assign_type(&mut nodes.borrow_mut(), ast.1, TypeDecl::F64);
+
+    println!("after assigning type:");
     print_tree(&nodes.borrow(), ast.1);
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 enum Node {
-    NumLiteral(f64),
+    NumLiteral(f64, Option<TypeDecl>),
     Add(usize, usize),
 }
 
 /// Index into Vec<Node>
 type NodeId = usize;
 
+#[derive(Debug, Clone, Copy)]
+enum TypeDecl {
+    F64,
+    I64,
+}
+
 fn print_tree(nodes: &[Node], root: NodeId) {
     fn print_tree_int(nodes: &[Node], root: NodeId, indent: usize) {
         let spaces = "  ".repeat(indent) + " ";
         let node = &nodes[root];
         match node {
-            Node::NumLiteral(val) => {
+            Node::NumLiteral(_, _) => {
                 println!("[{root:2}]{spaces}{node:?}");
             }
             Node::Add(lhs, rhs) => {
@@ -67,15 +78,25 @@ impl<'a> Subslice for Span<'a> {
 // }
 
 fn decimal(input: Input) -> IResult<Input, NodeId> {
-    let (r, res) = delimited(
+    let (r, (res, ty)) = delimited(
         multispace0,
-        recognize(many1(terminated(digit1, many0(char('_'))))),
+        pair(
+            recognize(many1(terminated(digit1, many0(char('_'))))),
+            opt(alt((tag("i64"), tag("f64")))),
+        ),
         multispace0,
     )(input)?;
     let num = res.parse::<f64>().unwrap();
     let mut nodes = input.extra.borrow_mut();
     let ret = nodes.len();
-    nodes.push(Node::NumLiteral(num));
+    nodes.push(Node::NumLiteral(
+        num,
+        ty.map(|ty| match *ty {
+            "i64" => TypeDecl::I64,
+            "f64" => TypeDecl::F64,
+            _ => unreachable!(),
+        }),
+    ));
     Ok((r, ret))
 }
 
@@ -101,4 +122,14 @@ fn add(i: Input) -> IResult<Input, NodeId> {
             // }
         },
     )(r)
+}
+
+fn assign_type(nodes: &mut [Node], root: NodeId, ty: TypeDecl) {
+    match nodes[root] {
+        Node::NumLiteral(_, ref mut target) => *target = Some(ty),
+        Node::Add(lhs, rhs) => {
+            assign_type(nodes, lhs, ty);
+            assign_type(nodes, rhs, ty);
+        }
+    }
 }
