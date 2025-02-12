@@ -21,20 +21,29 @@ fn main() {
     println!("nodes: {nodes:?}");
     print_tree(&nodes.borrow(), ast.1);
 
-    let nodes = nodes.borrow();
+    let mut nodes = nodes.borrow_mut();
     let builder = TypeConstraintBuilder::new(&nodes, ast.1);
     let constraints = builder.build().unwrap();
     println!("Constraints: {constraints:?}");
-    // assign_type(&mut nodes.borrow_mut(), ast.1, TypeDecl::F64);
+    resolve_types(&mut nodes, &constraints);
 
-    // println!("after assigning type:");
-    // print_tree(&nodes.borrow(), ast.1);
+    println!("after resolved types:");
+    print_tree(&nodes, ast.1);
 }
 
 #[derive(Debug, Clone, Copy)]
 enum Node {
     NumLiteral(f64, Option<TypeDecl>),
     Add(usize, usize),
+}
+
+impl Node {
+    fn type_decl(&mut self) -> Option<&mut Option<TypeDecl>> {
+        match self {
+            Self::NumLiteral(_, ty) => Some(ty),
+            _ => None,
+        }
+    }
 }
 
 /// Index into Vec<Node>
@@ -128,12 +137,28 @@ fn add(i: Input) -> IResult<Input, NodeId> {
     )(r)
 }
 
-fn assign_type(nodes: &mut [Node], root: NodeId, ty: TypeDecl) {
-    match nodes[root] {
-        Node::NumLiteral(_, ref mut target) => *target = Some(ty),
-        Node::Add(lhs, rhs) => {
-            assign_type(nodes, lhs, ty);
-            assign_type(nodes, rhs, ty);
+fn resolve_types(nodes: &mut [Node], constraints: &[TypeConstraint]) {
+    for constraint in constraints {
+        let (lhs, rhs) = if constraint.lhs < constraint.rhs {
+            let (left, right) = nodes.split_at_mut(constraint.rhs);
+            (&mut left[constraint.lhs], &mut right[0])
+        } else if constraint.rhs < constraint.lhs {
+            let (left, right) = nodes.split_at_mut(constraint.lhs);
+            (&mut right[0], &mut left[constraint.rhs])
+        } else {
+            panic!("Constraint on the same node");
+        };
+        if let Some((lhs, rhs)) = lhs.type_decl().zip(rhs.type_decl()) {
+            match (*lhs, *rhs) {
+                (Some(lhs), Some(rhs)) => {
+                    if lhs != rhs {
+                        panic!();
+                    }
+                }
+                (None, Some(rhs)) => *lhs = Some(rhs),
+                (Some(lhs), None) => *rhs = Some(lhs),
+                _ => panic!("All type annotations should be bound"),
+            }
         }
     }
 }
