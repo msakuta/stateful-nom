@@ -1,19 +1,50 @@
+use std::cell::RefCell;
+
 use nom::{
     branch::alt,
     character::complete::{char, digit1, multispace0},
     combinator::recognize,
     multi::{fold_many0, many0, many1},
     sequence::{delimited, pair, terminated},
-    Finish, IResult, InputTake, Offset,
+    Finish, IResult, InputTake,
 };
 use nom_locate::LocatedSpan;
 
-pub type Span<'a> = LocatedSpan<&'a str>;
+type Input<'a> = LocatedSpan<&'a str, &'a RefCell<Vec<Node>>>;
+type Span<'a> = LocatedSpan<&'a str, &'a RefCell<Vec<Node>>>;
 
 fn main() {
-    let source = Span::new("123 + 456");
+    let nodes = RefCell::new(vec![]);
+    let source = Input::new_extra("123 + 456 - 789", &nodes);
     let ast = add(source).finish().unwrap();
     println!("parsed: {ast:?}");
+    println!("nodes: {nodes:?}");
+    print_tree(&nodes.borrow(), ast.1);
+}
+
+#[derive(Debug, Clone)]
+enum Node {
+    NumLiteral(f64),
+    Add(usize, usize),
+}
+
+/// Index into Vec<Node>
+type NodeId = usize;
+
+fn print_tree(nodes: &[Node], root: NodeId) {
+    fn print_tree_int(nodes: &[Node], root: NodeId, indent: usize) {
+        let spaces = "  ".repeat(indent);
+        let node = &nodes[root];
+        println!("{spaces}{:?}", node);
+        match node {
+            Node::Add(lhs, rhs) => {
+                print_tree_int(nodes, *lhs, indent + 1);
+                print_tree_int(nodes, *rhs, indent + 1);
+            }
+            _ => {}
+        }
+    }
+    print_tree_int(nodes, root, 0);
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -45,35 +76,42 @@ impl<'a> Subslice for Span<'a> {
     }
 }
 
-fn decimal(input: Span) -> IResult<Span, Expression> {
+// impl<'a> Subslice for Input<'a> {
+//     fn subslice(&self, start: usize, length: usize) -> Self {
+//         self.take_split(start).0.take(length)
+//     }
+// }
+
+fn decimal(input: Input) -> IResult<Input, NodeId> {
     let (r, res) = delimited(
         multispace0,
         recognize(many1(terminated(digit1, many0(char('_'))))),
         multispace0,
     )(input)?;
     let num = res.parse::<f64>().unwrap();
-    Ok((
-        r,
-        Expression {
-            expr: ExprEnum::NumLiteral(num),
-            span: input,
-        },
-    ))
+    let mut nodes = input.extra.borrow_mut();
+    let ret = nodes.len();
+    nodes.push(Node::NumLiteral(num));
+    Ok((r, ret))
 }
 
-fn add(i: Span) -> IResult<Span, Expression> {
+fn add(i: Input) -> IResult<Input, NodeId> {
     let (r, init) = decimal(i)?;
 
     fold_many0(
         pair(alt((char('+'), char('-'))), decimal),
         move || init.clone(),
-        move |acc, (_op, val): (char, Expression)| {
-            let span = i.subslice(
-                i.offset(&acc.span),
-                acc.span.offset(&val.span) + val.span.len(),
-            );
+        move |acc, (_op, val): (char, NodeId)| {
+            // let span = i.subslice(
+            //     i.offset(&acc.span),
+            //     acc.span.offset(&val.span) + val.span.len(),
+            // );
+            let mut nodes = i.extra.borrow_mut();
+            let ret = nodes.len();
+            nodes.push(Node::Add(acc, val));
+            ret
             // if op == '+' {
-            Expression::new(ExprEnum::Add(Box::new(acc), Box::new(val)), span)
+            // Expression::new(ExprEnum::Add(Box::new(acc), Box::new(val)), span)
             // } else {
             //     Expression::new(ExprEnum::Sub(Box::new(acc), Box::new(val)), span)
             // }
